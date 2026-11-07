@@ -109,9 +109,15 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 .slogan{font-size:15px;color:var(--ink-soft);margin-top:4px;line-height:1.3}
 .pick{margin-left:auto;display:flex;align-items:center;gap:9px;flex-wrap:wrap}
 .pick label{font-size:13.5px;color:var(--ink-faint)}
-select,input[type=text],input[type=number],input[type=date],textarea{font:inherit;font-size:15px;color:var(--ink);background:var(--panel);border:1px solid var(--line);padding:7px 9px;max-width:100%}
+select,input[type=text],input[type=number],input[type=date],input[type=password],textarea{font:inherit;font-size:15px;color:var(--ink);background:var(--panel);border:1px solid var(--line);padding:7px 9px;max-width:100%}
 select:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--survey);outline-offset:1px}
 textarea{width:100%;min-height:64px;resize:vertical}
+.ai-box{background:var(--panel-2);border:1px solid var(--line);border-left:3px solid var(--survey);padding:13px 15px;margin:12px 0}
+.ai-head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.ai-head h4{margin:0;font-family:'Barlow Condensed',sans-serif;font-size:17px;color:var(--survey)}
+.ai-prev{display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;margin:8px 0}
+.ai-prev img{width:116px;height:86px;object-fit:cover;border:1px solid var(--line);background:var(--rock2)}
+.ai-status{font-size:13.5px;color:var(--ink-soft);margin:6px 0}
 .seg{display:inline-flex;flex-wrap:wrap;border:1px solid var(--survey)}
 .seg button{border:0;background:transparent;color:var(--survey);padding:6px 12px;font-family:'Barlow Condensed',sans-serif;font-size:15.5px;font-weight:600;cursor:pointer}
 .seg button[aria-pressed="true"]{background:var(--survey);color:var(--on-survey)}
@@ -679,7 +685,9 @@ function rSeg() {
   ee.forEach(x => {
     const hi = headInd(x.q), mine = fotos.filter(f => { const ep = ee.filter(y => y.t <= f.t); return ep.length && ep[ep.length - 1].id === x.id; });
     const row = (l, o) => `<div><span class="l">${l}</span>${o ? tag(SEV[o.s], o.txt) : '<span class="na">Sin registro</span>'}</div>`;
-    h += `<div class="ep"><h4><span>${x.id} · ${fD(x.t)}</span>${x.sim ? '<span class="tag sim">simulada</span>' : ''}</h4><div class="ind">${hi ? row('Capuchón', hi.cap) + row('Filtraciones', hi.fil) + row('Corrosión', hi.cor) : (x.i === 0 ? '<span class="na">Tensionamiento inicial: sin inspección visual de cabeza</span>' : '<span class="na">Sin cuestionario en esta época</span>')}</div>
+    const ai = x.ai || (mine.find(f => f.ai) || {}).ai;
+    const aiSevCls = ai ? ({ Low: 'ok', Medium: 'reg', High: 'def', Critical: 'crit' }[ai.severidad] || 'reg') : 'pend';
+    h += `<div class="ep"><h4><span>${x.id} · ${fD(x.t)}</span>${x.sim ? '<span class="tag sim">simulada</span>' : ''}</h4><div class="ind">${hi ? row('Capuchón', hi.cap) + row('Filtraciones', hi.fil) + row('Corrosión', hi.cor) : (x.i === 0 ? '<span class="na">Tensionamiento inicial: sin inspección visual de cabeza</span>' : '<span class="na">Sin cuestionario en esta época</span>')}${ai ? `<div><span class="l">Agente IA (${esc(ai.elemento)})</span>${tag(aiSevCls, ai.severidad + ' · ' + f1(ai.porcentaje, 0) + ' %')}</div><div style="display:block;font-size:13px;color:var(--ink-soft)"><strong>Patología:</strong> ${esc(ai.patologia)}<br><strong>Recomendación:</strong> ${esc(ai.recomendacion)}</div>` : ''}</div>
       <div class="shots">${mine.length ? mine.map(f => { const c = f.estado === 'Bueno' ? 'ok' : f.estado === 'Regular' ? 'reg' : 'crit'; return `<div class="shot ${c}"><div class="im">${f.src ? `<img alt="Cabeza del anclaje ${a.n}, ${fD(f.t)}" src="${f.src}">` : 'Sin imagen'}</div><small>${esc(f.estado)}${(f.tags || []).length ? ' · ' + esc(f.tags.join(', ')) : ''}</small></div>`; }).join('') : '<small class="src">Sin fotografías</small>'}</div></div>`;
   });
   h += `</div>`;
@@ -766,7 +774,210 @@ function rEnt() {
   $('v-ent').innerHTML = h;
 }
 
-/* ---------- 6. Formularios ---------- */
+/* ---------- 6. Formularios y Agente de Reconocimiento Geotécnico (Claude Vision API) ---------- */
+const AI_PROMPT = `You are an expert geotechnical and civil engineer specializing in structural inspection, slope stability, and retaining anchors. Analyze the provided site image for pathologies such as corrosion, tension cracks, concrete spalling, drainage failure, or slope movement. Return your response STRICTLY as a valid flat JSON object containing exactly these keys:
+- "elemento": The structural element analyzed (e.g., "Anchored soil slope", "Concrete retaining wall").
+- "patologia": A technical description of the observed defect or damage.
+- "severidad": Severity rating ("Low", "Medium", "High", or "Critical").
+- "porcentaje": Estimated percentage of the affected surface area (number only, e.g., 15).
+- "recomendacion": Recommended corrective geotechnical or structural action.
+Do not include any markdown formatting blocks like \`\`\`json or additional conversational text, just output the raw JSON object.`;
+const AI_KEY_STORAGE = 'estabila-anthropic-key';
+const getAiKey = () => { try { return localStorage.getItem(AI_KEY_STORAGE) || ''; } catch (e) { return ''; } };
+const setAiKey = v => { try { if (v) localStorage.setItem(AI_KEY_STORAGE, v); else localStorage.removeItem(AI_KEY_STORAGE); } catch (e) { /* ignorar */ } };
+
+function parseAiJson(rawText) {
+  const cleaned = String(rawText || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+  let p;
+  try { p = JSON.parse(cleaned); } catch (_) {
+    const i = cleaned.indexOf('{'), j = cleaned.lastIndexOf('}');
+    if (i !== -1 && j > i) p = JSON.parse(cleaned.slice(i, j + 1));
+    else throw new Error('La respuesta del modelo no es un JSON válido.');
+  }
+  const sevs = ['Low', 'Medium', 'High', 'Critical'];
+  const sRaw = String(p.severidad || 'Medium').trim();
+  const severidad = sevs.find(s => s.toLowerCase() === sRaw.toLowerCase()) || 'Medium';
+  const pctNum = Number(String(p.porcentaje ?? 0).replace(/[^0-9.+-]/g, ''));
+  const porcentaje = Number.isFinite(pctNum) ? clamp(Math.round(pctNum), 0, 100) : 0;
+  return {
+    elemento: String(p.elemento || 'Anchored soil slope').trim(),
+    patologia: String(p.patologia || '').trim(),
+    severidad,
+    porcentaje,
+    recomendacion: String(p.recomendacion || '').trim()
+  };
+}
+
+function fileToDataUrl(file, maxSide = 1024, quality = 0.82) {
+  return new Promise((resolve, reject) => {
+    const rd = new FileReader();
+    rd.onerror = () => reject(new Error('No se pudo leer el archivo de imagen.'));
+    rd.onload = () => {
+      const im = new Image();
+      im.onerror = () => reject(new Error('El archivo seleccionado no es una imagen válida.'));
+      im.onload = () => {
+        const s = Math.min(1, maxSide / Math.max(im.width, im.height));
+        const cv = document.createElement('canvas');
+        cv.width = Math.max(1, Math.round(im.width * s));
+        cv.height = Math.max(1, Math.round(im.height * s));
+        cv.getContext('2d').drawImage(im, 0, 0, cv.width, cv.height);
+        resolve(cv.toDataURL('image/jpeg', quality));
+      };
+      im.src = rd.result;
+    };
+    rd.readAsDataURL(file);
+  });
+}
+
+async function analyzeSiteImage(dataUrl, apiKey) {
+  /* 1. Intentar primero el endpoint serverless /api/analyze (Vercel) */
+  try {
+    const r = await fetch('/api/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image: dataUrl, mediaType: 'image/jpeg', apiKey: apiKey || undefined })
+    });
+    if (r.ok) {
+      const d = await r.json();
+      return parseAiJson(JSON.stringify(d));
+    }
+    if (r.status !== 404 && r.status !== 405 && !apiKey) {
+      const errBody = await r.json().catch(() => ({}));
+      throw new Error(errBody.error || `Error del servidor (${r.status})`);
+    }
+  } catch (err) {
+    if (!apiKey && err && err.message && !/Failed to fetch|NetworkError|404|Load failed/i.test(err.message)) {
+      throw err;
+    }
+  }
+
+  /* 2. Llamada directa desde el navegador a Anthropic Claude Vision API si se proporcionó API Key */
+  if (!apiKey) {
+    throw new Error('Configura ANTHROPIC_API_KEY en el servidor (/api/analyze) o ingresa tu clave de API de Anthropic en el panel del agente.');
+  }
+  const base64Data = dataUrl.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, '');
+  const models = ['claude-sonnet-4-20250514', 'claude-3-5-sonnet-latest', 'claude-3-5-haiku-latest'];
+  let lastErr = 'Error al consultar Anthropic Claude Vision API.';
+  for (const model of models) {
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: 1024,
+        temperature: 0.1,
+        system: AI_PROMPT,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: base64Data } },
+            { type: 'text', text: AI_PROMPT }
+          ]
+        }]
+      })
+    });
+    const payload = await resp.json().catch(() => ({}));
+    if (resp.ok) {
+      const txt = (payload.content || []).find(c => c.type === 'text');
+      if (!txt || !txt.text) throw new Error('Respuesta vacía del modelo de visión.');
+      return parseAiJson(txt.text);
+    }
+    lastErr = payload?.error?.message || `Error HTTP ${resp.status}`;
+    if (resp.status !== 404 && payload?.error?.type !== 'not_found_error' && !/model/i.test(lastErr)) break;
+  }
+  throw new Error(lastErr);
+}
+
+function applyAiToInspectionForm(res) {
+  const fE = $('fEp'); if (!fE || !res) return;
+  /* 1. Autocompletar los 5 campos del JSON del agente */
+  if ($('eEl')) $('eEl').value = res.elemento;
+  if ($('ePat')) $('ePat').value = res.patologia;
+  if ($('eSev')) $('eSev').value = res.severidad;
+  if ($('ePct')) $('ePct').value = res.porcentaje;
+  if ($('eRec')) $('eRec').value = res.recomendacion;
+  if ($('eAiRaw')) {
+    $('eAiRaw').style.display = 'block';
+    $('eAiJson').textContent = JSON.stringify(res, null, 2);
+  }
+
+  /* 2. Mapear a estado visual, notas y etiquetas de la fotografía */
+  const sev = res.severidad, pct = +res.porcentaje || 0;
+  if ($('eE')) {
+    $('eE').value = (sev === 'High' || sev === 'Critical') ? 'Malo' : (sev === 'Medium' || pct >= 25 ? 'Regular' : 'Bueno');
+  }
+  if ($('eNf')) {
+    $('eNf').value = `[${res.elemento}] ${res.patologia} (${sev}, ${pct}% afectado)`.slice(0, 200);
+  }
+  if ($('eN')) {
+    $('eN').value = `IA (${sev}, ${pct}%): ${res.recomendacion}`.slice(0, 160);
+  }
+
+  const corpus = `${res.elemento} ${res.patologia} ${res.recomendacion}`;
+  const tagMatchers = {
+    'Capuchón dañado': /capuch[oó]n|\bcap\b|cover|head protection|bolt|perforad|abollad|dented/i,
+    'Filtración': /filtraci[oó]n|water|moisture|seepage|leak|wet|humedad|goteo|drenaje|drainage|weep\s*hole|lloradero|efflorescence|eflorescencia|caco3/i,
+    'Óxido': /[oó]xido|corrosi[oó]n|rust|oxid|pitting|picadura|acero|tend[oó]n|strand|wedge|cuña|plate|placa/i,
+    'Vegetación': /vegetaci[oó]n|vegetation|plant|root|ra[ií]z|moss|musgo|weed|maleza|biolog/i,
+    'Grasa expuesta': /grasa|grease|wax|cera|compound|emulsi/i,
+    'Concreto fisurado': /concreto|concrete|spalling|crack|fisura|grieta|desprendimiento|dado|bearing pad|shotcrete|lanzado/i
+  };
+  fE.querySelectorAll('input[name="eTag"]').forEach(chk => {
+    const rx = tagMatchers[chk.value];
+    if (rx) chk.checked = rx.test(corpus);
+  });
+
+  /* 3. Mapear severidad y patologías al cuestionario q1..q13 (0 a 3) */
+  const qLvl = sev === 'Critical' ? 3 : sev === 'High' ? (pct >= 50 ? 3 : 2) : sev === 'Medium' ? (pct >= 30 ? 2 : 1) : (pct >= 15 ? 1 : 0);
+  const setRadio = (qid, val) => {
+    const r = fE.querySelector(`input[name="e_${qid}"][value="${val}"]`);
+    if (r) r.checked = true;
+  };
+  const qRules = [
+    ['q1', /capuch[oó]n|\bcap\b|head cover|cover/i],
+    ['q2', /grasa|grease|wax|filler/i],
+    ['q3', /concreto|concrete|spalling|dado|bearing pad|efflorescence|eflorescencia|caco3|fisura|crack/i],
+    ['q4', /placa|plate|corrosi[oó]n|rust|[oó]xido|steel|acero/i],
+    ['q5', /filtraci[oó]n|water|moisture|seepage|leak|wet|humedad|goteo/i],
+    ['q6', /cuña|wedge|anchor head|porta-cuña|corrosi[oó]n|rust|[oó]xido/i],
+    ['q8', /tor[oó]n|tend[oó]n|strand|wire|alambre|corrosi[oó]n|pitting/i],
+    ['q12', /slope movement|movimiento|tension crack|grieta de tensi[oó]n|instability|inestabilidad|deformaci[oó]n|settlement|deslizamiento/i],
+    ['q13', /drainage|drenaje|lloradero|weep\s*hole|cuneta|ditch|channel|obstruc|clog/i]
+  ];
+  let matchedAny = false;
+  qRules.forEach(([qid, rx]) => {
+    if (rx.test(corpus)) {
+      setRadio(qid, Math.max(1, qLvl));
+      matchedAny = true;
+    }
+  });
+  if (!matchedAny) {
+    ['q1', 'q3', 'q4', 'q5', 'q12', 'q13'].forEach(qid => setRadio(qid, qLvl));
+  }
+  previewEp();
+}
+
+function readAiFromForm() {
+  const el = $('eEl') ? $('eEl').value.trim() : '';
+  const pat = $('ePat') ? $('ePat').value.trim() : '';
+  const sev = $('eSev') ? $('eSev').value.trim() : '';
+  const pctRaw = $('ePct') ? $('ePct').value.trim() : '';
+  const rec = $('eRec') ? $('eRec').value.trim() : '';
+  if (!el && !pat && !sev && !pctRaw && !rec) return null;
+  return {
+    elemento: el || 'Anchored soil slope',
+    patologia: pat || 'Sin descripción técnica',
+    severidad: sev || 'Medium',
+    porcentaje: pctRaw !== '' && isFinite(+pctRaw) ? clamp(Math.round(+pctRaw), 0, 100) : 0,
+    recomendacion: rec || 'Sin recomendación registrada'
+  };
+}
+
 function qForm(prefix, pr) {
   let g = '', h = '';
   Q.forEach(q => { if (q.g !== g) { g = q.g; h += `<div class="qh">${esc(q.g)}</div>`; }
@@ -785,9 +996,31 @@ function rReg() {
   else h += `<form id="fEp" novalidate><div class="fgrid"><label>Anclaje<select id="eA">${L.map(x => `<option value="${x.n}"${x.n === a.n ? ' selected' : ''}>${x.n} · ${esc(x.k)}</option>`).join('')}</select></label>${fld('eT', 'Fecha de la inspección', 'date', `value="${today}" max="${today}"`)}${fld('eP', 'Carga residual de lift-off (kN)', 'number', 'min="0" step="0.1" placeholder="Opcional"')}${fld('eN', 'Nota (gato, manómetro, observaciones)', 'text', 'maxlength="160"')}</div>
    <p class="src" id="eRef"></p>
    <div class="checks"><label><input type="checkbox" id="eF"> Anclaje fuera de servicio (tendón roto o sin carga)</label></div>
-   <h4 class="qh">Cuestionario de inspección visual y de cabeza</h4>${qForm('e_', pr)}
-   <h4 class="qh">Fotografía de la cabeza (opcional)</h4><div class="fgrid">${fld('eI', 'Imagen', 'file', 'accept="image/*"')}<label>Estado visual<select id="eE"><option>Bueno</option><option>Regular</option><option>Malo</option></select></label>${fld('eNf', 'Nota de la fotografía', 'text', 'maxlength="200"')}</div>
+   <h4 class="qh">Fotografía del sitio / cabeza y Agente IA de reconocimiento</h4>
+   <div class="fgrid">${fld('eI', 'Imagen de inspección', 'file', 'accept="image/*"')}<label>Estado visual<select id="eE"><option>Bueno</option><option>Regular</option><option>Malo</option></select></label>${fld('eNf', 'Nota de la fotografía', 'text', 'maxlength="200"')}</div>
    <div class="checks">${FOTO_TAGS.map(t => `<label><input type="checkbox" name="eTag" value="${esc(t)}"> ${esc(t)}</label>`).join('')}</div>
+   <div class="ai-box">
+    <div class="ai-head">
+     <h4>Agente geotécnico de visión (Anthropic Claude Vision API)</h4>
+     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <label style="display:flex;align-items:center;gap:5px;font-size:13.5px;color:var(--ink-soft);cursor:pointer"><input type="checkbox" id="eAiAuto" checked> Autocompletar al subir imagen</label>
+      <button class="btn sm" type="button" id="btnAiRun">Analizar imagen con IA</button>
+     </div>
+    </div>
+    <div class="fgrid" style="margin-bottom:8px">
+     <label class="wide">Clave de API de Anthropic (opcional si <code>/api/analyze</code> ya tiene <code>ANTHROPIC_API_KEY</code> en el servidor)<input type="password" id="eApiKey" placeholder="sk-ant-api03-..." value="${esc(getAiKey())}" autocomplete="off"></label>
+    </div>
+    <div class="ai-prev" id="eImgWrap" style="display:none"><img id="eImgPrev" alt="Vista previa de la imagen seleccionada"><div class="ai-status" id="eAiStatus">Imagen lista para análisis patológico.</div></div>
+    <div class="fgrid">
+     ${fld('eEl', 'Elemento analizado (elemento)', 'text', 'placeholder="Anchored soil slope / Concrete retaining wall"')}
+     <label>Severidad (severidad)<select id="eSev"><option value="">Sin clasificar</option><option value="Low">Low (Baja)</option><option value="Medium">Medium (Media)</option><option value="High">High (Alta)</option><option value="Critical">Critical (Crítica)</option></select></label>
+     ${fld('ePct', 'Área afectada % (porcentaje)', 'number', 'min="0" max="100" step="1" placeholder="15"')}
+     ${fld('ePat', 'Patología observada (patologia)', 'text', 'placeholder="Descripción técnica del defecto o daño observado"', true)}
+     ${fld('eRec', 'Recomendación correctiva (recomendacion)', 'text', 'placeholder="Acción correctiva geotécnica o estructural recomendada"', true)}
+    </div>
+    <div id="eAiRaw" style="display:none"><span class="src">Respuesta JSON estricta del agente:</span><pre id="eAiJson" style="margin:4px 0 0"></pre></div>
+   </div>
+   <h4 class="qh">Cuestionario de inspección visual y de cabeza</h4>${qForm('e_', pr)}
    <div class="live" id="eLive"></div>
    <div class="btn-row"><button class="btn" type="submit">Guardar época</button></div></form>`;
   h += `</div></details>`;
@@ -823,20 +1056,56 @@ function bindReg() {
   if (fE) {
     const upd = () => previewEp(); fE.addEventListener('input', upd); fE.addEventListener('change', upd); previewEp();
     $('eA').onchange = () => { ui.sel = +$('eA').value; rReg(); };
+    const apiInput = $('eApiKey');
+    if (apiInput) apiInput.addEventListener('change', () => setAiKey(apiInput.value.trim()));
+    const runAi = async () => {
+      const file = $('eI') && $('eI').files && $('eI').files[0];
+      if (!file) return regMsg(true, 'Selecciona primero una fotografía en el campo «Imagen de inspección» para analizarla con IA.');
+      const btn = $('btnAiRun'), st = $('eAiStatus'), wrap = $('eImgWrap');
+      if (apiInput) setAiKey(apiInput.value.trim());
+      try {
+        if (btn) { btn.disabled = true; btn.textContent = 'Analizando...'; }
+        if (wrap) wrap.style.display = 'flex';
+        if (st) st.innerHTML = 'Analizando patologías geotécnicas y estructurales con Claude Vision...';
+        const dataUrl = await fileToDataUrl(file, 1024, 0.82);
+        if ($('eImgPrev')) $('eImgPrev').src = dataUrl;
+        const result = await analyzeSiteImage(dataUrl, apiInput ? apiInput.value.trim() : '');
+        applyAiToInspectionForm(result);
+        if (st) st.innerHTML = `<strong style="color:var(--c-ok)">Formulario autocompletado por IA:</strong> ${esc(result.elemento)} · severidad <strong>${esc(result.severidad)}</strong> (${result.porcentaje}% afectado). Revisa o ajusta antes de guardar.`;
+        toast('Análisis IA completado y formulario autocompletado');
+      } catch (err) {
+        const msg = err && err.message ? err.message : 'Error al analizar la imagen con IA.';
+        if (st) st.innerHTML = `<strong style="color:var(--c-crit)">Error:</strong> ${esc(msg)}`;
+        regMsg(true, msg);
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Analizar imagen con IA'; }
+      }
+    };
+    if ($('btnAiRun')) $('btnAiRun').onclick = runAi;
+    if ($('eI')) $('eI').addEventListener('change', async () => {
+      const file = $('eI').files[0];
+      if (!file) return;
+      try {
+        const prevUrl = await fileToDataUrl(file, 720, 0.72);
+        if ($('eImgWrap')) $('eImgWrap').style.display = 'flex';
+        if ($('eImgPrev')) $('eImgPrev').src = prevUrl;
+        if ($('eAiAuto') && $('eAiAuto').checked) await runAi();
+      } catch (e) {
+        regMsg(true, e.message || 'Imagen no válida.');
+      }
+    });
     fE.onsubmit = ev => {
-      ev.preventDefault(); const a = aOf(+$('eA').value), t = $('eT').value, P = parseFloat($('eP').value), q = readQ(fE, 'e_'), file = $('eI').files[0];
+      ev.preventDefault(); const a = aOf(+$('eA').value), t = $('eT').value, P = parseFloat($('eP').value), q = readQ(fE, 'e_'), file = $('eI').files[0], ai = readAiFromForm();
       if (!t) return regMsg(true, 'Indica la fecha de la inspección.');
       if (t < a.ep[0].t) return regMsg(true, 'La fecha no puede ser anterior al tensionamiento (' + fD(a.ep[0].t) + ').');
       if (t > isoNow()) return regMsg(true, 'La fecha no puede ser futura.');
-      if (!isFinite(P) && !Object.keys(q).length && !$('eF').checked && !file) return regMsg(true, 'Ingresa la carga de lift-off, responde al menos una pregunta del cuestionario o adjunta una fotografía.');
+      if (!isFinite(P) && !Object.keys(q).length && !$('eF').checked && !file && !ai) return regMsg(true, 'Ingresa la carga de lift-off, responde al menos una pregunta del cuestionario o adjunta una fotografía.');
       if (isFinite(P) && P <= 0) return regMsg(true, 'La carga de lift-off debe ser mayor que cero.');
-      const ep = { id: 'T' + a.ep.length, t, tipo: isFinite(P) ? (Object.keys(q).length ? 'Lift-off e inspección' : 'Lift-off') : 'Inspección visual', P: isFinite(P) ? P : null, q: Object.keys(q).length ? q : null, fuera: $('eF').checked, sim: false, nota: $('eN').value.trim() };
+      const ep = { id: 'T' + a.ep.length, t, tipo: isFinite(P) ? (Object.keys(q).length ? 'Lift-off e inspección' : 'Lift-off') : 'Inspección visual', P: isFinite(P) ? P : null, q: Object.keys(q).length ? q : null, fuera: $('eF').checked, sim: false, nota: $('eN').value.trim(), ai: ai || undefined };
       a.ep.push(ep);
-      const tags = [...fE.querySelectorAll('input[name="eTag"]:checked')].map(i => i.value), push = src => { if (src || tags.length || $('eNf').value.trim()) a.fotos.push({ t, estado: $('eE').value, tags, nota: $('eNf').value.trim(), src, sim: false }); ui.sel = a.n; done('Época T' + (a.ep.length - 1) + ' guardada para el anclaje ' + a.n); };
+      const tags = [...fE.querySelectorAll('input[name="eTag"]:checked')].map(i => i.value), push = src => { if (src || tags.length || $('eNf').value.trim() || ai) a.fotos.push({ t, estado: $('eE').value, tags, nota: $('eNf').value.trim(), src, sim: false, ai: ai || undefined }); ui.sel = a.n; done('Época T' + (a.ep.length - 1) + ' guardada para el anclaje ' + a.n); };
       if (!file) return push(null);
-      const rd = new FileReader(); rd.onerror = () => regMsg(true, 'No se pudo leer la imagen.');
-      rd.onload = () => { const im = new Image(); im.onerror = () => regMsg(true, 'El archivo no es una imagen válida.'); im.onload = () => { const s = Math.min(1, 720 / Math.max(im.width, im.height)), cv = document.createElement('canvas'); cv.width = Math.round(im.width * s); cv.height = Math.round(im.height * s); cv.getContext('2d').drawImage(im, 0, 0, cv.width, cv.height); push(cv.toDataURL('image/jpeg', .72)); }; im.src = rd.result; };
-      rd.readAsDataURL(file);
+      fileToDataUrl(file, 720, 0.72).then(push).catch(() => regMsg(true, 'No se pudo procesar la imagen.'));
     };
   }
   const fN = $('fNew');
@@ -932,8 +1201,8 @@ function csvInventario() {
   return csvText([head].concat(rows));
 }
 function csvEpocas() {
-  const L = anclajesDe(ui.tr), tr = trOf(ui.tr), head = ['Tramo', 'Anclaje', 'Epoca', 'Fecha', 'Tipo', 'Carga kN', 'Carga pc de diseno', 'Perdida pc vs T0', 'Anos desde T0', 'Estado A-D', 'Puntaje', 'Provisional', 'Simulada', 'Nota'].concat(Q.map(q => q.id.toUpperCase()));
-  const rows = []; L.forEach(a => E(a).forEach(x => rows.push([tr.id, a.n, x.id, x.t, x.tipo || '', x.P, x.r != null ? x.r * 100 : null, x.i ? x.loss : null, x.yrs, x.i ? (x.score != null ? x.grade : 'Sin evaluar') : '', x.score, x.prov ? 'Sí' : 'No', x.sim ? 'Sí' : 'No', x.nota || ''].concat(Q.map(q => x.q && x.q[q.id] !== undefined ? x.q[q.id] : '')))));
+  const L = anclajesDe(ui.tr), tr = trOf(ui.tr), head = ['Tramo', 'Anclaje', 'Epoca', 'Fecha', 'Tipo', 'Carga kN', 'Carga pc de diseno', 'Perdida pc vs T0', 'Anos desde T0', 'Estado A-D', 'Puntaje', 'Provisional', 'Simulada', 'Nota', 'IA Elemento', 'IA Patologia', 'IA Severidad', 'IA Porcentaje', 'IA Recomendacion'].concat(Q.map(q => q.id.toUpperCase()));
+  const rows = []; L.forEach(a => E(a).forEach(x => { const ai = x.ai || {}; rows.push([tr.id, a.n, x.id, x.t, x.tipo || '', x.P, x.r != null ? x.r * 100 : null, x.i ? x.loss : null, x.yrs, x.i ? (x.score != null ? x.grade : 'Sin evaluar') : '', x.score, x.prov ? 'Sí' : 'No', x.sim ? 'Sí' : 'No', x.nota || '', ai.elemento || '', ai.patologia || '', ai.severidad || '', ai.porcentaje != null ? ai.porcentaje : '', ai.recomendacion || ''].concat(Q.map(q => x.q && x.q[q.id] !== undefined ? x.q[q.id] : ''))); }));
   return csvText([head].concat(rows));
 }
 
