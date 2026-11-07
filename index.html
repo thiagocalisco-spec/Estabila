@@ -107,8 +107,10 @@ footer{margin-top:50px;padding:18px 0 0;border-top:1px solid var(--line);color:v
 /* ---------- ESTABILA: identidad y componentes nuevos (misma gramática visual del original) ---------- */
 body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);background:var(--panel);z-index:45}
 .brandrow{display:flex;flex-wrap:wrap;align-items:center;gap:10px 26px;padding-bottom:4px}
-.bmark{display:flex;align-items:center;gap:13px;min-width:0}
-.logo{width:clamp(38px,6vw,50px);height:clamp(38px,6vw,50px);flex:none;color:var(--survey)}
+.bmark{display:flex;align-items:center;gap:14px;min-width:0}
+.logo-wrap{width:clamp(46px,6.8vw,60px);height:clamp(46px,6.8vw,60px);flex:none;border-radius:50%;overflow:hidden;display:inline-flex;align-items:center;justify-content:center;background:var(--panel-2);box-shadow:0 0 0 2px color-mix(in srgb,var(--survey) 38%,var(--line)),0 4px 14px rgba(14,92,135,.22);transition:transform .22s ease,box-shadow .22s ease}
+.bmark:hover .logo-wrap{transform:scale(1.05);box-shadow:0 0 0 2px var(--survey),0 6px 18px rgba(14,92,135,.32)}
+.logo{width:100%;height:100%;object-fit:cover;display:block;transform:scale(1.34)}
 .wm{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:clamp(27px,5.4vw,38px);letter-spacing:.11em;line-height:1}
 .slogan{font-size:clamp(13px,1.9vw,15px);color:var(--ink-soft);margin-top:4px;line-height:1.3}
 .pick{margin-left:auto;display:flex;align-items:center;gap:9px;flex-wrap:wrap}
@@ -254,13 +256,9 @@ nav.tabs.ovl.ovr{-webkit-mask-image:linear-gradient(to right,transparent,#000 26
  <div class="top-in">
   <div class="brandrow">
    <div class="bmark">
-    <svg class="logo" viewBox="0 0 48 48" role="img" aria-label="Logotipo de ESTABILA: anclaje con placa de apoyo, tendón y bulbo en el terreno">
-     <rect x="1.5" y="1.5" width="45" height="45" fill="none" stroke="currentColor" stroke-width="2.4"/>
-     <rect x="9" y="11" width="5" height="16" fill="currentColor"/>
-     <line x1="14" y1="19" x2="27" y2="30" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
-     <line x1="27" y1="30" x2="38" y2="39" stroke="currentColor" stroke-width="8" stroke-linecap="round"/>
-     <line x1="27" y1="30" x2="38" y2="39" stroke="var(--panel)" stroke-width="2.2" stroke-linecap="round"/>
-    </svg>
+    <span class="logo-wrap">
+     <img class="logo" src="Images/ico.jpeg" alt="Logotipo de ESTABILA: anclaje con placa de apoyo, tendón y bulbo en el terreno" width="60" height="60" decoding="async">
+    </span>
     <div><div class="wm">ESTABILA</div><div class="slogan">Gestión integral y salud geotécnica de anclajes permanentes</div></div>
    </div>
    <div class="pick">
