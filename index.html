@@ -9,7 +9,7 @@
     <title>
       ESTABILA · Gestión integral y salud geotécnica de anclajes permanentes
     </title>
-    <link rel="icon" href="Images/ico.webp" type="image/webp" />
+    <link rel="icon" href="Images/ico.jpeg" type="image/webp" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -5830,11 +5830,7 @@ Do not include any markdown formatting blocks like \`\`\`json or additional conv
             } else if (mPct > 18 || /filtrac|water|seep|humed|dren/.test(fn)) {
               porcentaje = clamp(Math.round(mPct * 1.15 + ePct * 0.8), 15, 78);
               severidad =
-                porcentaje >= 45
-                  ? "High"
-                  : porcentaje >= 22
-                    ? "Medium"
-                    : "Low";
+                porcentaje >= 45 ? "High" : porcentaje >= 22 ? "Medium" : "Low";
               elemento = "Anchored soil slope and drainage system";
               patologia =
                 "Water seepage, persistent moisture staining, and calcium carbonate (CaCO3) efflorescence around the concrete bearing pad indicating obstructed weep holes.";
@@ -5850,16 +5846,17 @@ Do not include any markdown formatting blocks like \`\`\`json or additional conv
                 "Clear invasive vegetation around anchor heads and drainage channels, inspect concrete bearing pads for root-induced micro-cracking, and restore cap seals.";
             } else {
               porcentaje = clamp(
-                Math.round(rPct + mPct * 0.6 + ePct * 0.9 + (spall > tot * 0.35 ? 14 : 8)),
+                Math.round(
+                  rPct +
+                    mPct * 0.6 +
+                    ePct * 0.9 +
+                    (spall > tot * 0.35 ? 14 : 8),
+                ),
                 8,
                 55,
               );
               severidad =
-                porcentaje >= 35
-                  ? "High"
-                  : porcentaje >= 18
-                    ? "Medium"
-                    : "Low";
+                porcentaje >= 35 ? "High" : porcentaje >= 18 ? "Medium" : "Low";
               elemento = "Concrete retaining wall and anchor bearing pad";
               patologia =
                 "Localized concrete spalling, hairline tension cracks on the reaction pad, and minor weathering of external anchor head protection.";
@@ -7016,7 +7013,10 @@ Do not include any markdown formatting blocks like \`\`\`json or additional conv
                 .querySelectorAll(".pin")
                 .forEach((x) => x.classList.toggle("sel", +x.dataset.n === n));
               if (window.innerWidth < 1020 && $("f-t")) {
-                $("f-t").scrollIntoView({ behavior: "smooth", block: "nearest" });
+                $("f-t").scrollIntoView({
+                  behavior: "smooth",
+                  block: "nearest",
+                });
               }
             }
             return;
